@@ -1,0 +1,126 @@
+#define BLYNK_TEMPLATE_ID "TMPL3J9I5NJP7"
+#define BLYNK_TEMPLATE_NAME "AEROZEN"
+#define BLYNK_AUTH_TOKEN "fsJae3yFZr1R1Yb0CJgOs59ADmU9Lmw9"
+#define BLYNK_PRINT Serial  // Directs Blynk messages to the serial port
+
+#include <ESP8266WiFi.h>  // Include WiFi library for ESP8266
+#include <BlynkSimpleEsp8266.h>
+#include <DHT.h>  // Include DHT sensor library
+
+// Blynk and WiFi credentials
+const char auth[] = "fsJae3yFZr1R1Yb0CJgOs59ADmU9Lmw9";  // Blynk authentication token
+const char ssid[] = "Galaxy A14 5G 5E62";  // WiFi SSID
+const char pass[] = "gokul@2006";  // WiFi password
+
+// Pin configuration
+#define DHTPIN D2  // DHT sensor pin
+#define DHTTYPE DHT11  // Type of DHT sensor
+
+const int gasSensorPin = A0;  // Gas sensor pin
+const int relayPin = D1;  // Relay module pin
+
+const int gasThreshold = 25;  // Gas level threshold for triggering the relay
+
+DHT dht(DHTPIN, DHTTYPE);  // Initialize DHT sensor
+
+bool manualMode = false;  // Flag to track if the relay is in manual mode
+
+void setup()
+{
+  Serial.begin(115200);  // Start serial communication at 115200 baud rate
+  dht.begin();  // Initialize DHT sensor
+  Blynk.begin(auth, ssid, pass);  // Connect to Blynk using WiFi
+
+  pinMode(relayPin, OUTPUT);  // Set relay pin as output
+  pinMode(gasSensorPin, INPUT);  // Set gas sensor pin as input
+
+  digitalWrite(relayPin, HIGH);  // Ensure relay is off initially (active-low relay)
+
+  delay(2000);  // Wait for 2 seconds before proceeding
+}
+
+// Function to handle manual relay control from Blynk app
+BLYNK_WRITE(V4)
+{
+  int relayControl = param.asInt();  // Get value from Blynk app
+  manualMode = (relayControl == 1);  // Set manual mode based on app input
+
+  if (manualMode)
+  {
+    digitalWrite(relayPin, LOW);  // Turn on relay in manual mode (active-low relay)
+    Serial.println("Manual mode activated: Relay ON");
+  }
+  else
+  {
+    digitalWrite(relayPin, HIGH);  // Turn off relay when exiting manual mode (active-low relay)
+    Serial.println("Manual mode deactivated: Relay OFF");
+  }
+
+  Blynk.virtualWrite(V3, relayControl);  // Update relay status on Blynk
+}
+
+void loop()
+{
+  Blynk.run();  // Run Blynk
+
+  if (!manualMode)  // Only read sensors and control relay if not in manual mode
+  {
+    int sensorValue = analogRead(gasSensorPin);  // Read gas sensor value
+    int gas_percentage = map(sensorValue, 0, 1023, 0, 100);  // Convert to percentage
+
+    float humidity = dht.readHumidity();  // Read humidity from DHT sensor
+    float temperature = dht.readTemperature();  // Read temperature from DHT sensor
+
+    // Check if sensor readings are valid
+    if (isnan(humidity) || isnan(temperature))
+    {
+      Serial.println(F("Failed to read from DHT sensor!"));
+      return;
+    }
+
+    // Print sensor values to the Serial Monitor
+    Serial.print("Humidity: ");
+    Serial.print(humidity);
+    Serial.println("%");
+
+    Serial.print("Temperature: ");
+    Serial.print(temperature);
+    Serial.println("°C ");
+
+    Serial.print("Gas sensor value: ");
+    Serial.println(sensorValue);
+
+    Serial.print("Gas Percentage: ");
+    Serial.print(gas_percentage);
+    Serial.println("%");
+
+    Serial.println();
+
+    // Automatic control logic based on gas levels
+    if (gas_percentage > gasThreshold)
+    {
+      digitalWrite(relayPin, LOW);  // Activate relay if gas above threshold (active-low relay)
+      Blynk.virtualWrite(V3, 1);  // Update Blynk app
+      Serial.println("Automatic mode: Gas level high, Relay ON");
+    }
+    else
+    {
+      digitalWrite(relayPin, HIGH);  // Deactivate relay if gas below threshold (active-low relay)
+      Blynk.virtualWrite(V3, 0);  // Update Blynk app
+      Serial.println("Automatic mode: Gas level low, Relay OFF");
+    }
+
+    // Send sensor values to Blynk
+    Blynk.virtualWrite(V0, gas_percentage);  // Send gas percentage
+    Blynk.virtualWrite(V1, temperature);  // Send temperature
+    Blynk.virtualWrite(V2, humidity);  // Send humidity
+  }
+  else
+  {
+    // Print the current state of the relay in manual mode for debugging
+    Serial.print("Manual mode active: Relay state is ");
+    Serial.println(digitalRead(relayPin) == LOW ? "ON" : "OFF");  // Adjusted for active-low logic
+  }
+
+  delay(1000);  // Wait for a second before next loop iteration
+}
